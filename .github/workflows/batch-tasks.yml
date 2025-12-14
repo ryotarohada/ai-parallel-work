@@ -20,6 +20,12 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          show_full_output: true
+          max_iterations: 15
+          timeout_minutes: 20
+          track_progress: true
+          allowed_bash_commands: "git:*,ls:*,mkdir:*,rmdir:*,rm:*,mv:*,cp:*,find:*,grep:*,cat:*,head:*,tail:*,echo:*,touch:*,chmod:*,npm:*,node:*,yarn:*,pnpm:*,bun:*,python:*,pip:*,curl:*,wget:*,which:*,pwd:*,cd:*,tree:*,wc:*,sort:*,uniq:*,sed:*,awk:*,test:*,make:*,docker:*,zip:*,unzip:*"
+        timeout-minutes: 25
 
       - name: Slack Notify
         if: always()
