@@ -51,7 +51,7 @@ export async function updateStatus(pageId, status, updates = {}) {
 }
 
 // CLIモード: Ready状態のタスクをJSON出力
-if (process.argv[1].endsWith("notion_sync.js")) {
+if (process.argv[1] && process.argv[1].endsWith("notion_sync.js")) {
   const tasks = await getReadyTasks();
 
   if (tasks.length === 0) {

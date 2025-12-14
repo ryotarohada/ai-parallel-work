@@ -38,8 +38,14 @@ async function main() {
     // マークダウンのコードブロックを除去
     result = result.replace(/```javascript\n?/g, '').replace(/```\n?/g, '');
 
+    // src/ディレクトリを作成（存在しない場合）
+    const srcDir = '../src';
+    if (!fs.existsSync(srcDir)) {
+      fs.mkdirSync(srcDir, { recursive: true });
+    }
+
     // src/ディレクトリにJSファイルとして保存
-    const outputPath = `../src/${taskName}.js`;
+    const outputPath = `${srcDir}/${taskName}.js`;
     fs.writeFileSync(outputPath, result.trim());
 
     console.log(`Task ${taskName} completed - created ${outputPath}`);
