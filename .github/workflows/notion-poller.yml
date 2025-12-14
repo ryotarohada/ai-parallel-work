@@ -2,15 +2,13 @@ name: Notion Poller
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # 5分おき
-  workflow_dispatch: # 手動実行も可能
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 jobs:
-  check-notion:
+  poll-and-create-issues:
     runs-on: ubuntu-latest
-    outputs:
-      tasks: ${{ steps.fetch.outputs.tasks }}
-      has_tasks: ${{ steps.fetch.outputs.has_tasks }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,26 +21,10 @@ jobs:
         run: npm install
         working-directory: scripts
 
-      - name: Fetch Ready Tasks
-        id: fetch
+      - name: Fetch tasks and create GitHub Issues
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TASKS=$(node scripts/notion_sync.js fetch)
-          echo "tasks=$TASKS" >> $GITHUB_OUTPUT
-          if [ "$TASKS" = "[]" ]; then
-            echo "has_tasks=false" >> $GITHUB_OUTPUT
-            echo "No tasks ready for execution"
-          else
-            echo "has_tasks=true" >> $GITHUB_OUTPUT
-            echo "Found tasks: $TASKS"
-          fi
-
-  trigger-batch:
-    needs: check-notion
-    if: needs.check-notion.outputs.has_tasks == 'true'
-    uses: ./.github/workflows/batch-tasks.yml
-    with:
-      tasks: ${{ needs.check-notion.outputs.tasks }}
-    secrets: inherit
+          node scripts/notion_sync.js poll
