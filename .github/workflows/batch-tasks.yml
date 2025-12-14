@@ -24,8 +24,7 @@ jobs:
           max_iterations: 15
           timeout_minutes: 20
           track_progress: true
-          auto_create_pr: true
-          branch_prefix: "claude/"
+          branch_prefix: "feature/"
           allowed_bash_commands: "git:*,ls:*,mkdir:*,rmdir:*,rm:*,mv:*,cp:*,find:*,grep:*,cat:*,head:*,tail:*,echo:*,touch:*,chmod:*,npm:*,node:*,yarn:*,pnpm:*,bun:*,python:*,pip:*,curl:*,wget:*,which:*,pwd:*,cd:*,tree:*,wc:*,sort:*,uniq:*,sed:*,awk:*,test:*,make:*,docker:*,zip:*,unzip:*"
         timeout-minutes: 25
 
@@ -43,7 +42,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          
+
       - name: Update Notion Status
         if: success()
         env:
@@ -56,7 +55,7 @@ jobs:
           npm install
           node -e "
           import updateNotionStatus from './update-notion.js';
-          
+
           await updateNotionStatus({
             notionToken: process.env.NOTION_TOKEN,
             databaseId: process.env.NOTION_DATABASE_ID,
