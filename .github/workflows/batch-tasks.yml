@@ -29,13 +29,71 @@ jobs:
           allowed_bash_commands: "git:*,ls:*,mkdir:*,rmdir:*,rm:*,mv:*,cp:*,find:*,grep:*,cat:*,head:*,tail:*,echo:*,touch:*,chmod:*,npm:*,node:*,yarn:*,pnpm:*,bun:*,python:*,pip:*,curl:*,wget:*,which:*,pwd:*,cd:*,tree:*,wc:*,sort:*,uniq:*,sed:*,awk:*,test:*,make:*,docker:*,zip:*,unzip:*"
         timeout-minutes: 25
 
+      - name: Create PR automatically
+        if: success()
+        id: create_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const createPR = (await import('${{ github.workspace }}/scripts/create-pr.js')).default;
+            return await createPR({ github, context, core });
+
+      - name: Setup Node.js for scripts
+        if: success()
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          
+      - name: Update Notion Status
+        if: success()
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+        run: |
+          cd scripts
+          npm install
+          node -e "
+          import updateNotionStatus from './update-notion.js';
+          
+          await updateNotionStatus({
+            notionToken: process.env.NOTION_TOKEN,
+            databaseId: process.env.NOTION_DATABASE_ID,
+            issueTitle: process.env.ISSUE_TITLE,
+            prUrl: process.env.PR_URL
+          });
+          "
+
       - name: Slack Notify
         if: always()
         uses: slackapi/slack-github-action@v1
         with:
           payload: |
             {
-              "text": "Claude Code 実行完了: ${{ github.event.issue.html_url }}"
+              "text": "🤖 Claude Code 実行完了",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "Claude Code 実装完了"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Issue:*\n<${{ github.event.issue.html_url }}|${{ github.event.issue.title }}>"
+                    },
+                    {
+                      "type": "mrkdwn",  
+                      "text": "*PR:*\n${{ steps.create_pr.outputs.pr_url && format('<{0}|レビュー待ち>', steps.create_pr.outputs.pr_url) || '作成失敗' }}"
+                    }
+                  ]
+                }
+              ]
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
