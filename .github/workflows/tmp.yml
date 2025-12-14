@@ -1,0 +1,84 @@
+name: Notion → Claude Code Batch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  poll-notion:
+    runs-on: ubuntu-latest
+    outputs:
+      tasks: ${{ steps.poll.outputs.tasks }}
+      has_tasks: ${{ steps.poll.outputs.has_tasks }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Poll Notion (Ready → Running)
+        id: poll
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: |
+          TASKS=$(node scripts/notion_sync.js poll)
+          echo "tasks=$TASKS" >> $GITHUB_OUTPUT
+          if [ "$TASKS" = "[]" ]; then
+            echo "has_tasks=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_tasks=true" >> $GITHUB_OUTPUT
+          fi
+
+  claude-batch:
+    needs: poll-notion
+    if: needs.poll-notion.outputs.has_tasks == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        task: ${{ fromJson(needs.poll-notion.outputs.tasks) }}
+      max-parallel: 2 # 必要に応じて調整
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Issue for Task
+        id: issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_URL=$(gh issue create \
+            --title "${{ matrix.task.name }}" \
+            --body "${{ matrix.task.prompt }}")
+          echo "issue_url=$ISSUE_URL" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Slack Notify
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Claude Code 実行完了\nTask: ${{ matrix.task.name }}\nIssue: ${{ steps.issue.outputs.issue_url }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
