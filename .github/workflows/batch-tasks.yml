@@ -24,6 +24,8 @@ jobs:
           max_iterations: 15
           timeout_minutes: 20
           track_progress: true
+          auto_create_pr: true
+          branch_prefix: "claude/"
           allowed_bash_commands: "git:*,ls:*,mkdir:*,rmdir:*,rm:*,mv:*,cp:*,find:*,grep:*,cat:*,head:*,tail:*,echo:*,touch:*,chmod:*,npm:*,node:*,yarn:*,pnpm:*,bun:*,python:*,pip:*,curl:*,wget:*,which:*,pwd:*,cd:*,tree:*,wc:*,sort:*,uniq:*,sed:*,awk:*,test:*,make:*,docker:*,zip:*,unzip:*"
         timeout-minutes: 25
 
