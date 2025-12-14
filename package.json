@@ -1,0 +1,29 @@
+{
+  "name": "ai-parallel-work",
+  "version": "1.0.0",
+  "description": "Notion連携AIバッチ処理システム - NotionタスクをClaude AIで自動実行し、PR作成まで並行処理",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "install:all": "npm install && cd scripts && npm install",
+    "test:notion": "cd scripts && node notion_sync.js",
+    "test:claude": "cd scripts && node claude_task.js test-id test-task 'Hello Worldを出力するJavaScript関数を作成して'"
+  },
+  "workspaces": [
+    "scripts"
+  ],
+  "keywords": [
+    "notion",
+    "ai",
+    "claude",
+    "automation",
+    "batch-processing",
+    "github-actions"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/username/ai-parallel-work.git"
+  }
+}

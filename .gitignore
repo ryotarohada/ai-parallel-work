@@ -137,3 +137,7 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# AI batch processing output files
+error_*.log
+# Note: src/*.js files are intentionally committed

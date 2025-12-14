@@ -1,0 +1,148 @@
+name: Batch AI Tasks
+
+on:
+  workflow_call:
+    inputs:
+      tasks:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: 'タスク定義JSON'
+        required: true
+        default: '[{"id":"xxx","name":"test","prompt":"Hello World"}]'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          echo "matrix=${{ inputs.tasks }}" >> $GITHUB_OUTPUT
+
+  execute-tasks:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: ${{ fromJson(needs.setup.outputs.matrix) }}
+      max-parallel: 5
+      fail-fast: false  # エラーでも他タスク続行
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Execute Claude Task
+        id: claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          node scripts/claude_task.js "${{ matrix.task.id }}" "${{ matrix.task.name }}" "${{ matrix.task.prompt }}"
+
+      - name: Create Branch & Commit
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b ai/${{ matrix.task.name }}
+          git add src/${{ matrix.task.name }}.js
+          git commit -m "AI: ${{ matrix.task.name }}"
+          git push origin ai/${{ matrix.task.name }}
+
+      - name: Create Pull Request
+        if: success()
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_URL=$(gh pr create \
+            --title "AI実装: ${{ matrix.task.name }}" \
+            --body "自動生成
+          Notion Task ID: ${{ matrix.task.id }}" \
+            --base main \
+            --head ai/${{ matrix.task.name }} \
+            --draft \
+            --json url -q .url)
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+
+      - name: Update Notion Status (Success)
+        if: success()
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          node -e "
+          import('./scripts/notion_sync.js').then(m =>
+            m.updateStatus('${{ matrix.task.id }}', 'Review', {
+              prUrl: '${{ steps.pr.outputs.pr_url }}'
+            })
+          )"
+
+      - name: Update Notion Status (Failure)
+        if: failure()
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          ERROR_LOG=$(cat error_${{ matrix.task.name }}.log 2>/dev/null || echo 'Unknown error')
+          node -e "
+          import('./scripts/notion_sync.js').then(m =>
+            m.updateStatus('${{ matrix.task.id }}', 'Error', {
+              error: \`${ERROR_LOG}\`.substring(0, 2000)
+            })
+          )"
+
+  notify:
+    needs: execute-tasks
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack Notification
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "🤖 Notion AIバッチ処理完了",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "Notion連携バッチ処理完了"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*ステータス:*\n${{ needs.execute-tasks.result }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*リポジトリ:*\n<${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "<${{ github.server_url }}/${{ github.repository }}/pulls|PRを確認> | <https://notion.so/${{ secrets.NOTION_DATABASE_ID }}|Notionで確認>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
