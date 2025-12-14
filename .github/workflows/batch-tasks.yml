@@ -21,7 +21,9 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          echo "matrix=${{ inputs.tasks }}" >> $GITHUB_OUTPUT
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo '${{ inputs.tasks }}' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
   execute-tasks:
     needs: setup
