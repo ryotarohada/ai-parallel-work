@@ -42,7 +42,7 @@ jobs:
   trigger-batch:
     needs: check-notion
     if: needs.check-notion.outputs.has_tasks == 'true'
-    uses: ./.github/workflows/claude-batch.yml
+    uses: ./.github/workflows/batch-tasks.yml
     with:
       tasks: ${{ needs.check-notion.outputs.tasks }}
     secrets: inherit
