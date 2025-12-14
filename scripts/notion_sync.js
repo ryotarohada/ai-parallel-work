@@ -1,8 +1,4 @@
 import { Client } from "@notionhq/client";
-import fs from "fs";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const databaseId = process.env.NOTION_DATABASE_ID;
@@ -40,7 +36,7 @@ export async function updateStatus(pageId, status, updates = {}) {
 
   if (updates.error) {
     properties["エラー内容"] = {
-      rich_text: [{ text: { content: updates.error } }],
+      rich_text: [{ text: { content: updates.error.substring(0, 2000) } }],
     };
   }
 
@@ -51,19 +47,37 @@ export async function updateStatus(pageId, status, updates = {}) {
 }
 
 // CLIモード: Ready状態のタスクをJSON出力
-if (process.argv[1] && process.argv[1].endsWith("notion_sync.js")) {
-  const tasks = await getReadyTasks();
+if (process.argv[1].endsWith("notion_sync.js")) {
+  const action = process.argv[2];
 
-  if (tasks.length === 0) {
-    console.log("[]");
-    process.exit(0);
+  if (action === "fetch") {
+    // Ready状態のタスクを取得してRunningに更新
+    const tasks = await getReadyTasks();
+
+    if (tasks.length === 0) {
+      console.log("[]");
+      process.exit(0);
+    }
+
+    // Running状態に更新
+    const now = new Date().toISOString();
+    for (const task of tasks) {
+      await updateStatus(task.id, "Running", { executedAt: now });
+    }
+
+    console.log(JSON.stringify(tasks));
+  } else if (action === "update") {
+    // ステータス更新
+    const pageId = process.argv[3];
+    const status = process.argv[4];
+    const prUrl = process.argv[5];
+    const error = process.argv[6];
+
+    await updateStatus(pageId, status, {
+      prUrl: prUrl !== "null" ? prUrl : undefined,
+      error: error !== "null" ? error : undefined,
+    });
+
+    console.log("Updated");
   }
-
-  // Running状態に更新
-  const now = new Date().toISOString();
-  for (const task of tasks) {
-    await updateStatus(task.id, "Running", { executedAt: now });
-  }
-
-  console.log(JSON.stringify(tasks));
 }

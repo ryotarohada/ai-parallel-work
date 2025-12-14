@@ -1,4 +1,4 @@
-name: Batch AI Tasks
+name: Claude Code Batch Tasks
 
 on:
   workflow_call:
@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       tasks:
-        description: 'タスク定義JSON'
+        description: "タスク定義JSON"
         required: true
-        default: '[{"id":"xxx","name":"test","prompt":"Hello World"}]'
+        default: '[{"id":"xxx","name":"test","prompt":"Hello Worldを出力するJavaScript関数を作成"}]'
 
 jobs:
   setup:
@@ -21,9 +21,7 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          echo "matrix<<EOF" >> $GITHUB_OUTPUT
-          echo '${{ inputs.tasks }}' >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "matrix=${{ inputs.tasks }}" >> $GITHUB_OUTPUT
 
   execute-tasks:
     needs: setup
@@ -32,95 +30,129 @@ jobs:
       matrix:
         task: ${{ fromJson(needs.setup.outputs.matrix) }}
       max-parallel: 5
-      fail-fast: false  # エラーでも他タスク続行
+      fail-fast: false # エラーでも他タスク続行
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
-      - name: Install dependencies
+      - name: Install Notion dependencies
         run: npm install
         working-directory: scripts
 
-      - name: Execute Claude Task
+      - name: Execute Claude Code
         id: claude
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-        run: |
-          node scripts/claude_task.js "${{ matrix.task.id }}" "${{ matrix.task.name }}" "${{ matrix.task.prompt }}"
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            タスク: ${{ matrix.task.name }}
 
-      - name: Create Branch & Commit
+            以下の要件を満たすコードを実装してください:
+            ${{ matrix.task.prompt }}
+
+            実装後、変更をコミットしてください。
+          max_iterations: 30
+        continue-on-error: true
+
+      - name: Get PR URL
+        id: get_pr
         if: success()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b ai/${{ matrix.task.name }}
-          git add src/${{ matrix.task.name }}.js
-          git commit -m "AI: ${{ matrix.task.name }}"
-          git push origin ai/${{ matrix.task.name }}
-
-      - name: Create Pull Request
-        if: success()
-        id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR_URL=$(gh pr create \
-            --title "AI実装: ${{ matrix.task.name }}" \
-            --body "自動生成
-          Notion Task ID: ${{ matrix.task.id }}" \
-            --base main \
-            --head ai/${{ matrix.task.name }} \
-            --draft \
-            --json url -q .url)
+          # 最新のPRを取得（Claude Codeが作成したPR）
+          PR_URL=$(gh pr list --head "${{ github.ref_name }}" --json url --jq '.[0].url' || echo "")
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Notion Status (Success)
-        if: success()
+        if: steps.claude.outcome == 'success'
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
         run: |
-          node -e "
-          import('./scripts/notion_sync.js').then(m =>
-            m.updateStatus('${{ matrix.task.id }}', 'Review', {
-              prUrl: '${{ steps.pr.outputs.pr_url }}'
-            })
-          )"
+          node scripts/notion_sync.js update \
+            "${{ matrix.task.id }}" \
+            "Review" \
+            "${{ steps.get_pr.outputs.pr_url }}" \
+            "null"
 
       - name: Update Notion Status (Failure)
-        if: failure()
+        if: steps.claude.outcome == 'failure'
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
         run: |
-          ERROR_LOG=$(cat error_${{ matrix.task.name }}.log 2>/dev/null || echo 'Unknown error')
-          node -e "
-          import('./scripts/notion_sync.js').then(m =>
-            m.updateStatus('${{ matrix.task.id }}', 'Error', {
-              error: \`${ERROR_LOG}\`.substring(0, 2000)
-            })
-          )"
+          ERROR_MSG="Claude Code execution failed. Check GitHub Actions logs for details."
+          node scripts/notion_sync.js update \
+            "${{ matrix.task.id }}" \
+            "Error" \
+            "null" \
+            "$ERROR_MSG"
 
   notify:
     needs: execute-tasks
     runs-on: ubuntu-latest
     if: always()
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Count Results
+        id: count
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: |
+          # Reviewステータスのタスク数を取得
+          REVIEW_COUNT=$(node -e "
+            import('@notionhq/client').then(async ({ Client }) => {
+              const notion = new Client({ auth: process.env.NOTION_TOKEN });
+              const response = await notion.databases.query({
+                database_id: process.env.NOTION_DATABASE_ID,
+                filter: { property: 'ステータス', select: { equals: 'Review' } }
+              });
+              console.log(response.results.length);
+            })
+          ")
+
+          # Errorステータスのタスク数を取得
+          ERROR_COUNT=$(node -e "
+            import('@notionhq/client').then(async ({ Client }) => {
+              const notion = new Client({ auth: process.env.NOTION_TOKEN });
+              const response = await notion.databases.query({
+                database_id: process.env.NOTION_DATABASE_ID,
+                filter: { property: 'ステータス', select: { equals: 'Error' } }
+              });
+              console.log(response.results.length);
+            })
+          ")
+
+          echo "review_count=$REVIEW_COUNT" >> $GITHUB_OUTPUT
+          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
+
       - name: Slack Notification
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
             {
-              "text": "🤖 Notion AIバッチ処理完了",
+              "text": "🤖 Claude Code バッチ処理完了",
               "blocks": [
                 {
                   "type": "header",
                   "text": {
                     "type": "plain_text",
-                    "text": "Notion連携バッチ処理完了"
+                    "text": "Claude Code バッチ処理完了"
                   }
                 },
                 {
@@ -128,11 +160,15 @@ jobs:
                   "fields": [
                     {
                       "type": "mrkdwn",
-                      "text": "*ステータス:*\n${{ needs.execute-tasks.result }}"
+                      "text": "*実行結果:*\n${{ needs.execute-tasks.result }}"
                     },
                     {
                       "type": "mrkdwn",
-                      "text": "*リポジトリ:*\n<${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>"
+                      "text": "*レビュー待ち:*\n${{ steps.count.outputs.review_count }} タスク"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*エラー:*\n${{ steps.count.outputs.error_count }} タスク"
                     }
                   ]
                 },

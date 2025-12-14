@@ -29,18 +29,20 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
         run: |
-          TASKS=$(node scripts/notion_sync.js)
+          TASKS=$(node scripts/notion_sync.js fetch)
           echo "tasks=$TASKS" >> $GITHUB_OUTPUT
           if [ "$TASKS" = "[]" ]; then
             echo "has_tasks=false" >> $GITHUB_OUTPUT
+            echo "No tasks ready for execution"
           else
             echo "has_tasks=true" >> $GITHUB_OUTPUT
+            echo "Found tasks: $TASKS"
           fi
 
   trigger-batch:
     needs: check-notion
     if: needs.check-notion.outputs.has_tasks == 'true'
-    uses: ./.github/workflows/batch-tasks.yml
+    uses: ./.github/workflows/claude-batch.yml
     with:
       tasks: ${{ needs.check-notion.outputs.tasks }}
     secrets: inherit
